@@ -350,14 +350,20 @@ class BMCContainer():
 						self.bmps.append(pad*64*64)
 				w = self.STRIPE_WIDTH*64
 				h*=len(self.bmps)//self.STRIPE_WIDTH
-			c_bmp = b"" if not self.pal else self.PALETTE
-			if self.btype == self.BIN_CONTAINER:
-				collage_builder = (lambda x, a=self, PAD=len(pad), WIDTH=range(w // 64): b''.join([b''.join([a.bmps[a.STRIPE_WIDTH*(x+1)-1-k][64*PAD*j:64*PAD*(j+1)] for k in WIDTH]) for j in range(64)]))
+			if len(self.bmps) == 0 or len(self.bmps) < self.STRIPE_WIDTH:
+				self.b_log(sys.stdout, False, 1, "Not enough files to build collage with default collage -WIDTH of %d" % (self.STRIPE_WIDTH))
 			else:
-				collage_builder = (lambda x, a=self, PAD=len(pad), WIDTH=range(w // 64): b''.join([b''.join([a.bmps[a.STRIPE_WIDTH*x+k][64*PAD*j:64*PAD*(j+1)] for k in WIDTH]) for j in range(64)]))
-			c_bmp += b''.join(map(collage_builder, range(h//64)))
-			self.b_write(os.path.join(dname, "%s_collage.bmp" % (self.fname)), self.b_export_bmp(w, h, c_bmp))
-			self.b_log(sys.stdout, False, 0, "Successfully exported collage file.")
+				try:
+					c_bmp = b"" if not self.pal else self.PALETTE
+					if self.btype == self.BIN_CONTAINER:
+						collage_builder = (lambda x, a=self, PAD=len(pad), WIDTH=range(w // 64): b''.join([b''.join([a.bmps[a.STRIPE_WIDTH*(x+1)-1-k][64*PAD*j:64*PAD*(j+1)] for k in WIDTH]) for j in range(64)]))
+					else:
+						collage_builder = (lambda x, a=self, PAD=len(pad), WIDTH=range(w // 64): b''.join([b''.join([a.bmps[a.STRIPE_WIDTH*x+k][64*PAD*j:64*PAD*(j+1)] for k in WIDTH]) for j in range(64)]))
+					c_bmp += b''.join(map(collage_builder, range(h//64)))
+					self.b_write(os.path.join(dname, "%s_collage.bmp" % (self.fname)), self.b_export_bmp(w, h, c_bmp))
+					self.b_log(sys.stdout, False, 0, "Successfully exported collage file.")
+				except IndexError:
+					self.b_log(sys.stdout, False, 1, "Not enough files to build collage with default collage -WIDTH of %d" % (self.STRIPE_WIDTH))
 		return True
 	def b_export_bmp(self, width, height, data):
 		if not self.pal:
@@ -375,7 +381,7 @@ class BMCContainer():
 		return True
 
 if __name__ == "__main__":
-	prs = argparse.ArgumentParser(description="RDP Bitmap Cache parser (v. 3.04, 2023/12/02)")
+	prs = argparse.ArgumentParser(description="RDP Bitmap Cache parser (v. 3.05, 2026/08/04)")
 	prs.add_argument("-s", "--src", help="Specify the BMCache file or directory to process.", required=True)
 	prs.add_argument("-d", "--dest", help="Specify the directory where to store the extracted bitmaps.", required=True)
 	prs.add_argument("-c", "--count", help="Only extract the given number of bitmaps.", type=int, default=-1)
@@ -396,9 +402,17 @@ if __name__ == "__main__":
 		for root, dirs, files in os.walk(args.src):
 			for f in files:
 				if f.rsplit(".", 1)[-1].upper() in ["BIN", "BMC"]:
-					if args.verbose:
-						sys.stdout.write("[---] File '%s' has been found.%s" % (os.path.join(root, f), os.linesep))
-					src_files.append(os.path.join(root, f))
+					file_path = os.path.join(root, f)
+					try:
+						file_size = os.path.getsize(file_path)
+					except OSError:
+						file_size = 0
+					if file_size > 0:
+						if args.verbose:
+							sys.stdout.write("[---] File '%s' has been found.%s" % (file_path, os.linesep))
+						src_files.append(file_path)
+					else:
+						sys.stdout.write("[!!!] File '%s' is zero bytes, skipping file.%s" % (file_path, os.linesep))
 		if len(src_files) == 0:
 			sys.stderr.write("No suitable files were found under '%s' directory.%s" % (args.src, os.linesep))
 			exit(-1)
@@ -406,8 +420,17 @@ if __name__ == "__main__":
 		sys.stderr.write("Invalid -s/--src parameter; use -h/--help for help.%s" % (os.linesep))
 		exit(-1)
 	else:
-		sys.stdout.write("[+++] Processing a single file: '%s'.%s" % (args.src, os.linesep))
-		src_files.append(args.src)
+		file_size = 0
+		try:
+			file_size = os.path.getsize(args.src)
+		except OSError:
+			file_size = 0
+		if file_size > 0:
+			sys.stdout.write("[+++] Processing a single file: '%s'.%s" % (args.src, os.linesep))
+			src_files.append(args.src)
+		else:
+			sys.stdout.write("[!!!] File '%s' is Zero-Bytes.%s" % (args.src, os.linesep))
+	
 	for src in src_files:
 		sys.stdout.write("[+++] Processing a file: '%s'.%s" % (src, os.linesep)) 		
 		if bmcc.b_import(src):
